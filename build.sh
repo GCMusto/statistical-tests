@@ -2,7 +2,7 @@
 
 set -xe
 
-CFLAGS="-Wall -Wextra"
+CFLAGS="-Wall -Wextra -g"
 LIBS="-lm"
 
 mkdir -p ./build

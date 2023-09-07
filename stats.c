@@ -9,6 +9,22 @@ typedef struct {
   size_t size;
 } Vector;
 
+// Define structure for holding the test
+typedef struct {
+  Vector* data1;              // pointer to sample 1
+  Vector* data2; 	      // pointer to sample 2
+  size_t size1;		      // size of the first sample
+  size_t size2;		      // size of the second sample
+  Vector* ranks1;	      // pointer to vector of ranks for sample 1
+  Vector* ranks2;	      // pointer to vector of ranks for sample 2
+  double u1;		      // Mann-Whitney U statistics for sample 1
+  double u2;		      // Mann-Whitney U statistics for sample 2
+  double U;                   // Mann-Whitney U statistics
+  double mu;                  // Mann-Whitney U statistics mean
+  double sd;                  // Mann-Whitney U statistics standard deviation
+  double pvalue;	      // p-value corresponding to Mann-Whitney test
+} MannWhitney_data;
+
 // Function to create a new vector
 Vector create_vector(size_t size) {
   Vector vec;
@@ -34,7 +50,6 @@ void free_vector(Vector* vec) {
   free(vec->data);
 }
 
-// Mann-Whitney test
 // Function to combine two vectors
 Vector combine_vectors(const Vector* a,const Vector* b) {
 
@@ -88,24 +103,38 @@ Vector rank_vector(Vector* vec, bool ascending) {
   return ranked_vector;
 }
 
+void split_ranking(Vector* ranked_vector, Vector* a, Vector* b) {
 
-double mwmu(Vector* a, Vector* b)  {
-  return (a->size * b->size)/2.0;
+ for (size_t i = 0; i < a->size; i++) {
+    a->data[i] = ranked_vector->data[i];
+  }
+
+  for (size_t i = 0; i < b->size; i++) {
+    b->data[i] = ranked_vector->data[a->size + i];
+  }
+
 }
 
-double mwsd(Vector* rank, Vector* a, Vector* b) {
+
+double mwmu(size_t n1, size_t n2)  {
+  return ((double)n1 * (double)n2)/2.0;
+}
+
+double mwsd(Vector* rank1, Vector* rank2) {
 
     double tie_adjustment = 0.0;
-    double n1n2 = a->size * b->size;
-    double N = a->size * b->size;
+    size_t n1 = rank1->size;
+    size_t n2 = rank2->size;    
+    size_t N = n1 + n2;
+    Vector rank = combine_vectors(rank1, rank2);
     
-    for (size_t i = 0; i < rank->size; i++) {
-        double current_rank = rank->data[i];
+    for (size_t i = 0; i < N; i++) {
+        double current_rank = rank.data[i];
         size_t tie_count = 0;
 
         // Count the number of tied values for the current rank
-        for (size_t j = 0; j < rank->size; j++) {
-            if (rank->data[j] == current_rank) {
+        for (size_t j = 0; j < N; j++) {
+            if (rank.data[j] == current_rank) {
                 tie_count++;
             }
         }
@@ -114,7 +143,8 @@ double mwsd(Vector* rank, Vector* a, Vector* b) {
         tie_adjustment += (tie_count * tie_count * tie_count) - tie_count;
     }
 
-    return sqrt((n1n2/12.0) * ((N + 1) - (tie_adjustment/(N * (N - 1)))));
+    double sd = sqrt(((n1 * n2)/12.0) * ((N + 1) - (tie_adjustment/(N * (N - 1)))));
+    return sd;
   
 }
 
@@ -135,26 +165,46 @@ double calculate_pvalue(double observedValue, double mean, double stdDev) {
     return p_value;
 }
 
-double mwtest(Vector* rank, Vector* a, Vector* b){
+void mwtest(MannWhitney_data* mwData){
 
+  mwData->u1 = 0;
+  mwData->u2 = 0;  
+  size_t n1 = mwData->size1;
+  size_t n2 = mwData->size2;
   double sum_rank1 = 0;
   double sum_rank2 = 0;
-  double u1 = 0;
-  double u2 = 0;
-  double mann_whitney_stat = 0;
+
   
-  for (size_t i = 0; i < a->size; i++){
-    sum_rank1 += rank->data[i];
+  for (size_t i = 0; i < n1; i++){
+    sum_rank1 += mwData->ranks1->data[i];
   }
 
-  sum_rank2 = (a->size + b->size) * ((a->size + b->size) + 1.0)/2.0;
-  u1 = (a->size * b->size) + (a->size * (a->size + 1)/2) - sum_rank1;
-  u2 = (a->size * b->size) + (b->size * (b->size + 1)/2) - sum_rank2;
+  sum_rank2 = (n1 + n2) * ((n1 + n2) + 1.0)/2.0;
+  //mwData->u1 = (n1 * n2) + (n1 * (n1 + 1)/2) - sum_rank1;
+  //mwData->u2 = (n1 * n2) + (n2 * (n2 + 1)/2) - sum_rank2;
+  mwData->u1 = sum_rank1 - (n1 * (n1 + 1))/2.0;
+  mwData->u2 = sum_rank2 - (n2 * (n2 + 1))/2.0;
 
-  if (u1 > u2) mann_whitney_stat = u1;
-  else mann_whitney_stat = u2;
+  if (mwData->u1 > mwData->u2) mwData->U = mwData->u2;
+  else mwData->U = mwData->u1;
 
-  return calculate_pvalue(mann_whitney_stat, mwmu(a, b), mwsd(rank, a, b));
+  mwData->pvalue =
+    calculate_pvalue(
+      mwData->U,
+      mwData->mu,
+      mwData->sd);
+  
+}
+
+void print_mw_test(MannWhitney_data* mwData) {
+
+  printf("========================================================================\n");
+  printf("=                                                                      \n");  
+  printf("= data: vector1 and vector2                                            \n");
+  printf("= U = %.2f, p-value = %.4f                                             \n", mwData->U, mwData->pvalue);
+  printf("= Alternative hypothesis: true location shift is not equal to zero     \n");
+  printf("=                                                                      \n");
+  printf("========================================================================\n");
   
 }
 
@@ -162,37 +212,50 @@ int main(){
   size_t size1, size2;
 
   // Read the necessary data
-  printf("Enter the size of vector 1: \n");
+  printf("== Enter the size of vector 1: \n");
   scanf("%zu", &size1);
-  printf("Enter the size of vector 2: \n");
+  printf("\n== Enter the size of vector 2: \n");
   scanf("%zu", &size2);
-
+  
   Vector vector1 = create_vector(size1);
   Vector vector2 = create_vector(size2);
-
-  printf("Vector 1 ========================\n");
-  input_vector(&vector1);
-  printf("Vector 2 ========================\n");  
-  input_vector(&vector2);
-
-  // Perform the test
-  Vector ab = combine_vectors(&vector1, &vector2);
-  Vector ordered_ab = rank_vector(&ab, true);
   
-  for (size_t i = 0; i < ab.size; i++) {
-    printf("%f \n", ordered_ab.data[i]);
-  }  
+  printf("\n\n== Vector 1 ========================\n");
+  input_vector(&vector1);
+  printf("\n== Vector 2 ========================\n");  
+  input_vector(&vector2);
+  printf("\n\n");
+  
+  // Perform observation ranking
+  Vector ab = combine_vectors(&vector1, &vector2);
+  Vector ranked_vector = rank_vector(&ab, true);
 
-  //  printf("\nThe Mann-Whitney statistic is: %f\n", mwtest(&ordered_ab, &vector1, &vector2));
-  printf("\nThe Mann-Whitney p-value is: %f\n", mwtest(&ordered_ab, &vector1, &vector2));
-  printf("\nThe Mann-Whitney statistic mean is: %f\n", mwmu(&vector1, &vector2));
-  printf("\nThe Mann-Whitney statistic sd is: %f\n", mwsd(&ordered_ab, &vector1, &vector2));
-    
+  // Split ranking in two vectors
+  Vector rank1 = create_vector(size1);
+  Vector rank2 = create_vector(size2);
+  split_ranking(&ranked_vector, &rank1, &rank2);
+
+  // Populate Mann-Whitney test structure
+  MannWhitney_data mwData;
+  mwData.data1 = &vector1;
+  mwData.data2 = &vector2;
+  mwData.size1 = vector1.size;
+  mwData.size2 = vector2.size;
+  mwData.ranks1 = &rank1;
+  mwData.ranks2 = &rank2;
+  mwData.mu = mwmu(mwData.size1, mwData.size2);
+  mwData.sd = mwsd(mwData.ranks1, mwData.ranks2);  
+
+  mwtest(&mwData);
+  print_mw_test(&mwData);
+  
   // Free resources
   free_vector(&vector1);
   free_vector(&vector2);
   free_vector(&ab);
-  free_vector(&ordered_ab);
+  free_vector(&ranked_vector);
+  free_vector(&rank1);
+  free_vector(&rank2);
   
   return 0;
 }
