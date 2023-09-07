@@ -24,8 +24,20 @@ typedef struct {
   double mu;                  // Mann-Whitney U statistics mean
   double sd;                  // Mann-Whitney U statistics standard deviation
   const char* alternative;    // two-sided, less, greater
+  bool correction;            // true for continuity correction
   double pvalue;	      // p-value corresponding to Mann-Whitney test
 } MannWhitney_data;
+
+// Function to determine the sign of a double
+int sign(double num) {
+    if (num > 0) {
+        return 1; // Positive
+    } else if (num < 0) {
+        return -1; // Negative
+    } else {
+        return 0; // Zero
+    }
+}
 
 // Function to create a new vector
 Vector create_vector(size_t size) {
@@ -151,16 +163,21 @@ double mwsd(Vector* rank1, Vector* rank2) {
 }
 
 // Function to calculate the p-value for a two-tailed normal distribution
-double calculate_pvalue(double observedValue, double mean, double stdDev, const char* alternative) {
+double calculate_pvalue(double observedValue, double mean,
+			double stdDev, const char* alternative,
+			bool correction) {
 
-    double z = (observedValue - mean) / stdDev;
+    double z = 0.0;
     double p_value = 0.0;
-
+			
     if (strcmp(alternative, "two-sided") == 0) {
+      z = (observedValue - mean - correction * sign(observedValue - mean) * 0.5)/stdDev;      
       p_value = 2.0 * (1.0 - 0.5 * (1.0 + erf(z / sqrt(2.0))));
     } else if (strcmp(alternative, "less") == 0) {
+      z = (observedValue - mean + correction * 0.5)/stdDev;
       p_value = 1.0 - 0.5 * (1.0 + erf(z / sqrt(2.0)));
     } else if (strcmp(alternative, "greater") == 0) {
+      z = (observedValue - mean - correction * 0.5)/stdDev;
       p_value = 0.5 * (1.0 + erf(z / sqrt(2.0)));
     } else {
       fprintf(stderr, "Wrong alternative hypothesis selected!\n");
@@ -206,7 +223,8 @@ void mwtest(MannWhitney_data* mwData){
       mwData->U,
       mwData->mu,
       mwData->sd,
-      mwData->alternative);
+      mwData->alternative,
+      mwData->correction);
   
 }
 
@@ -217,7 +235,7 @@ void print_mw_test(MannWhitney_data* mwData) {
   printf("= data: vector1 and vector2                                            \n");
   printf("= U = %.2f, p-value = %.4f                                             \n", mwData->U, mwData->pvalue);
   printf("= Alternative hypothesis: true location shift is not equal to zero     \n");
-  printf("=                                                                      \n");
+  printf("= \n");
   printf("= U1 = %.2f, U2 = %.2f, mu = %.2f, sd = %.4f                           \n", mwData->u1, mwData->u2, mwData->mu, mwData->sd);
   printf("=                                                                      \n");
   printf("========================================================================\n");
@@ -262,6 +280,7 @@ int main(){
   mwData.mu = mwmu(mwData.size1, mwData.size2);
   mwData.sd = mwsd(mwData.ranks1, mwData.ranks2);  
   mwData.alternative = "two-sided";
+  mwData.correction = true;
   mwtest(&mwData);
   print_mw_test(&mwData);
   
